@@ -24,13 +24,14 @@ import sys
 import logitech_steering_wheel as lsw
 from PyQt5 import QtWidgets, QtCore
 
-from agents import SteeringWheelAgent, ZeroAgent
+from agents import SteeringWheelAgent, ZeroAgent, KeyBoardAgent
 from controllableobjects import PointMassObject
 from experiment.experiment_conditions import get_experiment_conditions
 from gui import ExperimentGUI, ParticipantInfoDialog
 from simulation.simmaster import SimMaster
 from simulation.simulationconstants import SimulationConstants
 from trackobjects import TunnelMergingTrack
+from trackobjects.threeforkmergingtrack import ThreeForkMergingTrack
 from trackobjects.surroundings import Surroundings
 from trackobjects.trackside import TrackSide
 
@@ -106,7 +107,7 @@ if __name__ == '__main__':
     simulation_constants = SimulationConstants(dt=50,
                                                vehicle_width=1.8,
                                                vehicle_length=4.5,
-                                               track_start_point_distance=25.,
+                                               track_start_point_distance=30.,
                                                track_section_length=50,
                                                max_time=30e3)
 
@@ -116,7 +117,7 @@ if __name__ == '__main__':
     condition_list = get_experiment_conditions(simulation_constants)
 
     # setup track and surroundings
-    track = TunnelMergingTrack(simulation_constants)
+    track = ThreeForkMergingTrack(simulation_constants)
     surroundings = Surroundings.load_from_file('surroundings.pkl')
 
     gui = ExperimentGUI(track, surroundings=surroundings)
@@ -145,6 +146,16 @@ if __name__ == '__main__':
                                               cruise_control_velocity=initial_conditions.right_initial_velocity,
                                               resistance_coefficient=0.005, constant_resistance=0.5)
 
+    # Calvin add
+    center_point_mass_object = PointMassObject(track,
+                                              initial_position=track.traveled_distance_to_coordinates(
+                                                  initial_conditions.center_initial_position_offset,
+                                                  track_side=TrackSide.CENTER),
+                                              initial_velocity=initial_conditions.right_initial_velocity,
+                                              use_discrete_inputs=False,
+                                              cruise_control_velocity=initial_conditions.right_initial_velocity,
+                                              resistance_coefficient=0.005, constant_resistance=0.5)
+
     lsw.initialize_with_window(True, int(gui.winId()))
 
     # The two lines below construct objects that communicate with steering wheel. These are commented out to enable running the code without hardware.
@@ -154,15 +165,16 @@ if __name__ == '__main__':
     #
     # steering_wheel_left = SteeringWheelAgent(1, use_vibration_feedback=True, desired_velocity=initial_conditions.left_initial_velocity,
     #                                          controllable_object=left_point_mass_object)
-
-    gui.register_controllable_cars(left_point_mass_object, right_point_mass_object, simulation_constants.vehicle_length,
+    gui.register_controllable_cars(left_point_mass_object, right_point_mass_object, center_point_mass_object, simulation_constants.vehicle_length,
                                    simulation_constants.vehicle_width)
 
     # The lines below add vehicles to the simulation. The last argument determines the source of the control input for a vehicle. The steeringwheel controls are
     # commented out here. Instead, ZeroAgent objects are used. These are fake inputs that always use an input of 0.
-
+    keyboard_center = KeyBoardAgent()
+    keyboard_center.connect_event_listener(app)
     # sim_master.add_vehicle(TrackSide.LEFT, left_point_mass_object, steering_wheel_left)
     # sim_master.add_vehicle(TrackSide.RIGHT, right_point_mass_object, steering_wheel_right)
+    sim_master.add_vehicle(TrackSide.CENTER, center_point_mass_object, keyboard_center)
     sim_master.add_vehicle(TrackSide.LEFT, left_point_mass_object, ZeroAgent())
     sim_master.add_vehicle(TrackSide.RIGHT, right_point_mass_object, ZeroAgent())
 
@@ -185,9 +197,18 @@ if __name__ == '__main__':
         lambda: save_participant_info(os.path.join('data', 'experiments', 'experiment_' + str(experiment_number)),
                                       right_dialog.participant_info))
 
+    center_dialog = ParticipantInfoDialog(participant_numbers[TrackSide.CENTER], TrackSide.CENTER, parent=gui)
+    center_dialog.accepted.connect(
+        lambda: save_participant_info(os.path.join('data', 'experiments', 'experiment_' + str(experiment_number)),
+                                      center_dialog.participant_info))
+    center_dialog.rejected.connect(
+        lambda: save_participant_info(os.path.join('data', 'experiments', 'experiment_' + str(experiment_number)),
+                                      center_dialog.participant_info))
+
     if app.desktop().screenCount() == 3:
         left_center = app.desktop().screenGeometry(1).center()
         right_center = app.desktop().screenGeometry(2).center()
+        center_center = app.desktop().screenGeometry(3).center()
 
         gui.left_participant_dialog.showMinimized()
         left_dialog.move(left_center - QtCore.QPoint(int(left_dialog.width() / 2), int(left_dialog.height() / 2)))
@@ -195,8 +216,13 @@ if __name__ == '__main__':
         gui.right_participant_dialog.showMinimized()
         right_dialog.move(right_center - QtCore.QPoint(int(right_dialog.width() / 2), int(right_dialog.height() / 2)))
 
-        right_dialog.activateWindow()
+        gui.center_participant_dialog.showMinimized()
+        center_dialog.move(center_center - QtCore.QPoint(int(center_dialog.width() / 2), int(center_dialog.height() / 2)))
+
         left_dialog.activateWindow()
+        right_dialog.activateWindow()
+        center_dialog.activateWindow()
+
 
     return_code = app.exec_()
     lsw.shutdown()

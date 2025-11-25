@@ -26,25 +26,37 @@ from scipy import stats
 from trackobjects import Track
 from trackobjects.trackside import TrackSide
 
-
-class SymmetricMergingTrack(Track):
-    def __init__(self, simulation_constants, track_width=4.):
+#try
+class ThreeForkMergingTrack(Track):
+    def __init__(self, simulation_constants, track_width=4.0):
         self._start_point_distance = simulation_constants.track_start_point_distance
         self._section_length = simulation_constants.track_section_length
         self._track_width = track_width
-        self._approach_angle = np.arccos((self._start_point_distance / 2) / self._section_length)
-        if not np.pi / 4 < self._approach_angle < np.pi / 2:
-            raise ValueError('The approach angle for the symmetric merging track cannot be larger then 45 degree, please decrease the start point distance or '
-                             'increase the section length.')
 
+        # Define angles for each fork (customized for symmetry). Change this line to adjust angle
+        self._left_approach_angle = np.arccos((self._start_point_distance / 2) / self._section_length)
+        self._right_approach_angle = self._left_approach_angle
+        self._center_approach_angle = 0.0  # Center path goes straight up
+
+        # Validate angles
+        if not np.pi / 4 < self._left_approach_angle < np.pi / 2:
+            raise ValueError('Approach angle too sharp. Increase section length or decrease start point distance.')
+
+        # Merge point (all forks converge here)
         self._merge_point = np.array([0.0, np.sqrt(self._section_length ** 2 - (self._start_point_distance / 2) ** 2)])
         self._end_point = np.array([0.0, self._merge_point[1] + self._section_length])
 
-        self._left_way_points = [np.array([-self._start_point_distance / 2., 0.0]), self._merge_point, self._end_point]
+        # Waypoints for each side
+        self._left_way_points = [np.array([-self._start_point_distance / 2, 0.0]), self._merge_point, self._end_point]
         self._left_run_up_point = np.array([-self._start_point_distance, -np.sqrt(self._section_length ** 2 - (self._start_point_distance / 2) ** 2)])
-        self._right_way_points = [np.array([self._start_point_distance / 2., 0.0]), self._merge_point, self._end_point]
+        # Q: startpoint distance not divided by 2? and why - np.sqrt...? is it because every timestep is minus that section?
+        self._center_way_points = [np.array([0.0, 0.0]), self._merge_point, self._end_point]
+        self._center_run_up_point = np.array([0.0, -np.sqrt(self._section_length ** 2 - (self._start_point_distance / 2) ** 2)])
+        self._right_way_points = [np.array([self._start_point_distance / 2, 0.0]), self._merge_point, self._end_point]
         self._right_run_up_point = np.array([self._start_point_distance, -np.sqrt(self._section_length ** 2 - (self._start_point_distance / 2) ** 2)])
+        # Q: startpoint distance not divided by 2? and why - np.sqrt...?
 
+        #boundaries
         self._lower_bound_threshold = None
         self._upper_bound_threshold = None
 
@@ -54,16 +66,21 @@ class SymmetricMergingTrack(Track):
         self._lower_bound_approximation_intersect = None
         self._lower_bound_constant_value = None
 
-        if type(self) == SymmetricMergingTrack:
-            # only initialize the approximation when type is SymmetricMergingTrack to prevent this initialization to be called in a super().__init__() call
-            self._initialize_linear_bound_approximation(simulation_constants.vehicle_width, simulation_constants.vehicle_length)
+        if type(self) == ThreeForkMergingTrack:
+            # only initialize the approximation when type is ThreeForkMergingTrack to prevent this initialization to be called in a super().__init__() call
+            self._initialize_linear_bound_approximation(simulation_constants.vehicle_width,
+                                                        simulation_constants.vehicle_length)
+
 
     def _initialize_linear_bound_approximation(self, vehicle_width, vehicle_length):
-        self._upper_bound_threshold = self._section_length - (vehicle_width / 2.) / np.tan((np.pi / 2) - self._approach_angle) - (vehicle_length / 2)
-        self._lower_bound_threshold = self._section_length - (vehicle_width / 2.) / np.tan((np.pi / 2) - self._approach_angle) + (vehicle_length / 2)
+        self._upper_bound_threshold = self._section_length - (vehicle_width / 2.) / np.tan((np.pi / 2) - self._left_approach_angle) - (vehicle_length / 2)
+        self._lower_bound_threshold = self._section_length - (vehicle_width / 2.) / np.tan((np.pi / 2) - self._left_approach_angle) + (vehicle_length / 2)
+
+        #cap lowerbound to track length
         if self._lower_bound_threshold > self._section_length:
             self._lower_bound_threshold = self._section_length
 
+        #create a range of distances
         last_point = 2 * self._section_length
 
         # 10 cm resolution lookup
@@ -90,21 +107,24 @@ class SymmetricMergingTrack(Track):
     def is_beyond_finish(self, position):
         return position[1] >= self._end_point[1]
 
+
     def get_heading(self, position):
-        """
-        Assumes that approach angle is <45 degrees and not 0 degrees.
-        With these assumption, the relevant section can be determined based on the y coordinates only
-        """
         if position[1] > self._merge_point[1]:
-            # closest point is on final section
-            return np.pi / 2
+            # Y coordinate is after merging point, closest point is on final section
+            return np.pi / 2  # Final straight section
+
         else:
-            if position[0] > 0.0:
-                # closest point is on right approach
-                return np.pi - self._approach_angle
+            if position[0] < -1e-3:
+                # X coordinate is inferior than 0 then closest point is on left approach
+                return self._left_approach_angle
+            elif position[0] > 1e-3:
+                # X coordinate is superior than 0 then closest point is on right approach
+                return np.pi - self._right_approach_angle
             else:
-                # closest point is on left approach
-                return self._approach_angle
+                # X coordinate is equal to 0 then closest point is on middle approach
+                return np.pi / 2  # Center path goes straight up
+
+    # still need to adjust...
 
     def closest_point_on_route(self, position):
         """
@@ -118,12 +138,15 @@ class SymmetricMergingTrack(Track):
         else:
             before_or_after = 'before'
 
-            if position[0] >= 0.0:
+            if position[0] > 0.0:
                 # closest point is on right approach
                 track_side = TrackSide.RIGHT
-            else:
+            elif position[0] < 0.0:
                 # closest point is on left approach
                 track_side = TrackSide.LEFT
+            else:
+                #closest point on Center approach
+                track_side = TrackSide.CENTER
 
         return self._closest_point_on_route_forced(position, track_side, before_or_after)
 
@@ -140,6 +163,8 @@ class SymmetricMergingTrack(Track):
                 x0, y0 = self._right_way_points[0]
             elif track_side is TrackSide.LEFT:
                 x0, y0 = self._left_way_points[0]
+            else:
+                x0, y0 = self._center_way_points[0]
 
             x1, y1 = self._merge_point
             b = y1
@@ -162,19 +187,26 @@ class SymmetricMergingTrack(Track):
     def _traveled_distance_to_coordinates_forced(self, distance, track_side: TrackSide, before_or_after_merge):
         if track_side is TrackSide.LEFT:
             x_axis = -1
+            approach_angle = self._left_approach_angle
+
         elif track_side is TrackSide.RIGHT:
             x_axis = 1
+            approach_angle=self._right_approach_angle
+        else:
+            x_axis= 0
+            approach_angle = self._center_approach_angle
+
 
         if before_or_after_merge == 'before':
-            x = ((self._start_point_distance / 2.) - np.cos(self._approach_angle) * distance) * x_axis
-            y = np.sin(self._approach_angle) * distance
+            x = ((self._start_point_distance / 2.) - np.cos(approach_angle) * distance) * x_axis
+            y = np.sin(approach_angle) * distance
         elif before_or_after_merge == 'after':
             x = 0.0
-            y = np.sin(self._approach_angle) * self._section_length + (distance - self._section_length)
+            y = np.sin(approach_angle) * self._section_length + (distance - self._section_length)
         return np.array([x, y])
 
     def coordinates_to_traveled_distance(self, point):
-        if point[0] == 0.0:
+        if point[0] == 0.0 and point[1] > self._merge_point[1]:
             before_or_after = 'after'
             track_side = None
         elif point[0] > 0.0:
@@ -183,6 +215,9 @@ class SymmetricMergingTrack(Track):
         elif point[0] < 0.0:
             before_or_after = 'before'
             track_side = TrackSide.LEFT
+        elif point[0] == 0.0:
+            before_or_after = 'before'
+            track_side = TrackSide.CENTER
         return self._coordinates_to_traveled_distance_forced(point, track_side=track_side, before_or_after_merge=before_or_after)
 
     def _coordinates_to_traveled_distance_forced(self, point, track_side: TrackSide, before_or_after_merge):
@@ -193,6 +228,8 @@ class SymmetricMergingTrack(Track):
                 distance = np.linalg.norm(point - self._left_way_points[0])
             elif track_side is TrackSide.RIGHT:
                 distance = np.linalg.norm(point - self._right_way_points[0])
+            elif track_side is TrackSide.CENTER:
+                distance = np.linalg.norm(point - self._center_way_points[0])
         return distance
 
     def get_collision_bounds_approximation(self, traveled_distance_vehicle_1):
@@ -220,8 +257,8 @@ class SymmetricMergingTrack(Track):
         """
 
         # setup path_polygon and other pre-requisites
-        a = self._approach_angle
-        b = np.pi / 2 - self._approach_angle
+        a = self._left_approach_angle
+        b = np.pi / 2 - self._left_approach_angle
         l = vehicle_length / 2
         w = vehicle_width / 2
 
@@ -314,29 +351,46 @@ class SymmetricMergingTrack(Track):
     def get_track_bounding_rect(self):
         x1 = self._left_way_points[0][0]
         x2 = self._right_way_points[0][0]
+        x3 = self._center_way_points[0][0]
 
         y1 = 0.0
         y2 = self._end_point[1]
 
-        return x1, y1, x2, y2
+        return x1, y1, x2, y2, x3
+
+
+    # ...
 
     def get_way_points(self, track_side: TrackSide, show_run_up=False) -> list:
-        if track_side is TrackSide.LEFT:
+        if track_side == TrackSide.LEFT:
             if show_run_up:
                 return [self._left_run_up_point] + self._left_way_points
             else:
                 return self._left_way_points
-        else:
+
+        elif track_side == TrackSide.CENTER:
+            if show_run_up:
+                return [self._center_run_up_point] + self._center_way_points
+            else:
+                return self._center_way_points
+
+        elif track_side == TrackSide.RIGHT:
             if show_run_up:
                 return [self._right_run_up_point] + self._right_way_points
             else:
                 return self._right_way_points
+        else:
+            raise ValueError("Invalid TrackSide")
 
     def get_start_position(self, track_side: TrackSide) -> np.ndarray:
         if track_side is TrackSide.LEFT:
             return self._left_way_points[0]
-        else:
+        elif track_side is TrackSide.RIGHT:
             return self._right_way_points[0]
+        else:
+            return self._center_way_points[0]
+
+        return self.get_way_points(track_side)[0]
 
     @property
     def total_distance(self) -> float:
@@ -345,6 +399,19 @@ class SymmetricMergingTrack(Track):
     @property
     def track_width(self) -> float:
         return self._track_width
+
+    # ##this part not sure start...
+    # def is_beyond_finish(self, position):
+    #     return position[1] >= self._end_point[1]
+    #
+    # def get_merge_point(self):
+    #     return self._merge_point
+    #
+    # def get_end_point(self):
+    #     return self._end_point
+    # ##                       ... end
+
+#try end
 
     @staticmethod
     def _plot_polygons(polygons: list, points=None):
@@ -361,7 +428,8 @@ class SymmetricMergingTrack(Track):
         fig = pyplot.figure()
         ax = fig.add_subplot(111)
 
-        colors = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown', 'tab:pink', 'tab:gray', 'tab:olive', 'tab:cyan']
+        colors = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown', 'tab:pink', 'tab:gray',
+                  'tab:olive', 'tab:cyan']
         color_index = 0
 
         for polygon in polygons:
@@ -376,3 +444,20 @@ class SymmetricMergingTrack(Track):
 
         ax.autoscale(enable=True)
         pyplot.show()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

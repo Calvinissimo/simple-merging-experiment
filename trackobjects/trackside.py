@@ -22,12 +22,29 @@ import enum
 class TrackSide(enum.Enum):
     LEFT = 0
     RIGHT = 1
+    CENTER = 2  #added calvin
+
+    # @property
+    # def other(self):
+    #     return {TrackSide.LEFT: TrackSide.RIGHT,
+    #             TrackSide.RIGHT: TrackSide.LEFT,}[self]
+    #
+    # def __str__(self):
+    #     return {TrackSide.LEFT: 'left',
+    #             TrackSide.RIGHT: 'right',}[self]
 
     @property
     def other(self):
-        return {TrackSide.LEFT: TrackSide.RIGHT,
-                TrackSide.RIGHT: TrackSide.LEFT,}[self]
+        if self == TrackSide.LEFT:
+            return TrackSide.RIGHT
+        elif self == TrackSide.RIGHT:
+            return TrackSide.LEFT
+        else:
+            return None  # or raise NotImplementedError("MIDDLE has no opposite track side.")
 
     def __str__(self):
-        return {TrackSide.LEFT: 'left',
-                TrackSide.RIGHT: 'right',}[self]
+        return {
+            TrackSide.LEFT: 'left',
+            TrackSide.RIGHT: 'right',
+            TrackSide.CENTER: 'center',
+        }[self]

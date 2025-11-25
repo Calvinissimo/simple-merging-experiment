@@ -33,7 +33,7 @@ class TunnelMergingTrack(SymmetricMergingTrack):
 
         self._start_point_distance = simulation_constants.track_start_point_distance
         self._section_length = simulation_constants.track_section_length
-        self._track_width = track_width
+        self._track_width = track_width 
         self._approach_angle = np.arccos((self._start_point_distance / 2) / (self._section_length * 2))
 
         if not np.pi / 4 < self._approach_angle < np.pi / 2:

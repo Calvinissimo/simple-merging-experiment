@@ -38,7 +38,8 @@ class KeyBoardAgent(QtCore.QObject):
         return self._steering_command
 
     def compute_continuous_input(self, dt):
-        raise NotImplementedError("the keyboard agent can only generate discrete inputs")
+        # raise NotImplementedError("the keyboard agent can only generate discrete inputs")
+        return 0.75 * self._steering_command
 
     def connect_event_listener(self, app: QtWidgets.QApplication):
         app.installEventFilter(self)
